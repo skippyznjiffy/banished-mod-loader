@@ -1,9 +1,5 @@
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:3b2a1a,100:6b8e3a&height=190&section=header&text=BML&fontColor=f4e9d0&fontSize=72&desc=Banished%20Mod%20Loader&descAlignY=74&descSize=20" alt="BML">
-</p>
-
-<p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=18&duration=3000&pause=1200&color=6B8E3A&center=true&vCenter=true&width=560&lines=Code+mods+for+Banished;Place+a+whole+street+in+one+drag;Run+the+game+at+50x" alt="Code mods for Banished">
+  <img src="docs/img/banner.png" alt="BML, the Banished Mod Loader">
 </p>
 
 <p align="center">
@@ -38,14 +34,20 @@ To remove it, delete `dinput8.dll`. No game files are changed.
 
 More on each one in [docs/plugins.md](docs/plugins.md).
 
+<table>
+  <tr>
+    <td><img src="docs/img/main-menu.png" alt="The BML button in the main menu"></td>
+    <td><img src="docs/img/bml-screen.png" alt="The BML screen listing the active mods"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>A BML button in the main menu and the pause menu</sub></td>
+    <td align="center"><sub>It lists your active mods and plugins</sub></td>
+  </tr>
+</table>
+
 <p align="center">
   <img src="docs/img/area-fill-problem.webp" width="600" alt="A crop field refused over rough ground">
   <br><sub>Without Area Fill, a few bad tiles and the whole field is refused</sub>
-</p>
-
-<p align="center">
-  <img src="docs/img/console.png" width="600" alt="The BML console">
-  <br><sub>The BML console shows what loaded and how fast the game runs</sub>
 </p>
 
 ## Good to know
@@ -53,7 +55,6 @@ More on each one in [docs/plugins.md](docs/plugins.md).
 - Only works on the 64-bit Steam version, 1.0.7. On anything else it turns itself off.
 - Some antivirus programs flag it, since loading through `dinput8.dll` is also what cheats
   do. The source is all here if you'd rather build it yourself with `build.bat`.
-- There's a BML button in the main menu that lists your active mods.
 
 Want to write your own plugin? See [docs/api.md](docs/api.md).
 
