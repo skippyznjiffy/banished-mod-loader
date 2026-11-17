@@ -9,7 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define BML_API_VERSION 4
+#define BML_API_VERSION 5
 
 // action ids of the game's key map, as its tools read them
 #define BML_ACTION_SELECT 5
@@ -19,6 +19,7 @@
 typedef struct BmlPlacementTool BmlPlacementTool;
 typedef struct BmlTemplate BmlTemplate;
 typedef struct BmlAreaTool BmlAreaTool;
+typedef struct BmlRoadTool BmlRoadTool;
 
 typedef struct BmlSpot {
     int x, y, rotation;
@@ -37,9 +38,11 @@ typedef struct BmlTileMark {
 
 // return true to swallow the frame, the game's own update then does not run
 typedef bool (*BmlPlacementUpdateFn)(BmlPlacementTool* tool, bool active, void* user);
-// seconds is the engine's fixed update step, the sim ran game_speed() steps of it
 // the same for area tools: fields, orchards, stockpiles, clearing, pastures, cemeteries
 typedef bool (*BmlAreaUpdateFn)(BmlAreaTool* tool, bool active, void* user);
+// and for the road tool, dirt and stone roads
+typedef bool (*BmlRoadUpdateFn)(BmlRoadTool* tool, bool active, void* user);
+// seconds is the engine's fixed update step, the sim ran game_speed() steps of it
 typedef void (*BmlFrameFn)(float seconds, void* user);
 
 typedef struct BmlApi {
@@ -119,6 +122,18 @@ typedef struct BmlApi {
     bool (*mark_tiles)(BmlAreaTool* tool, const BmlTileMark* tiles, int count);
     // a line in the log that the console shows as a warning
     void (*log_warn)(const char* plugin, const char* fmt, ...);
+
+    // added in version 5
+
+    // runs every frame the road tool is the active tool
+    bool (*on_road_update)(BmlRoadUpdateFn fn, void* user);
+    BmlTemplate* (*road_template)(BmlRoadTool* tool);
+    // whether the tool would lay road on one tile now
+    bool (*road_tile_ok)(BmlRoadTool* tool, int x, int y);
+    // queues road on one tile the way the tool's own drag does
+    bool (*place_road_tile)(BmlRoadTool* tool, int x, int y);
+    // like mark_tiles, for the road tool
+    bool (*mark_road_tiles)(BmlRoadTool* tool, const BmlTileMark* tiles, int count);
 } BmlApi;
 
 typedef bool (*BmlPluginInitFn)(const BmlApi* api);

@@ -8,6 +8,9 @@
 #include "console.h"
 #include "game.h"
 #include "menu.h"
+#include "settings.h"
+#include "update.h"
+#include "version.h"
 
 namespace {
 
@@ -44,17 +47,19 @@ std::string Narrow(const std::wstring& s) {
     return out;
 }
 
-// the plugins that started
+// every plugin in the folder, only the ones switched on in bml.ini are started
 std::vector<PluginEntry> LoadPlugins(const std::wstring& dir) {
-    std::vector<PluginEntry> started;
+    std::vector<PluginEntry> plugins;
     WIN32_FIND_DATAW found;
     HANDLE search = FindFirstFileW((dir + L"*.dll").c_str(), &found);
     if (search == INVALID_HANDLE_VALUE) {
         LogAt(LogLevel::Warn, "bml", "no plugins in NativeMods");
-        return started;
+        return plugins;
     }
     do {
         std::string name = Narrow(found.cFileName);
+        // the pattern also matches short names, so updater leftovers like x.dll.old can show up
+        if (name.size() < 5 || _stricmp(name.c_str() + name.size() - 4, ".dll") != 0) continue;
         HMODULE plugin = LoadLibraryW((dir + found.cFileName).c_str());
         if (!plugin) {
             LogAt(LogLevel::Error, "bml", "%s failed to load, error %lu", name.c_str(), GetLastError());
@@ -66,21 +71,27 @@ std::vector<PluginEntry> LoadPlugins(const std::wstring& dir) {
             FreeLibrary(plugin);
             continue;
         }
-        if (init(GameApi())) {
+        std::string file = name.substr(0, name.size() - 4);
+        PluginEntry entry{file, file, "", PluginEntry::State::Running};
+        auto about = reinterpret_cast<BmlPluginAboutFn>(GetProcAddress(plugin, "BmlPluginAbout"));
+        if (const BmlPluginInfo* info = about ? about() : nullptr) {
+            if (info->title) entry.title = info->title;
+            if (info->description) entry.description = info->description;
+        }
+        if (!PluginEnabled(file)) {
+            LogAt(LogLevel::Info, "bml", "%s is switched off", name.c_str());
+            entry.state = PluginEntry::State::Off;
+            FreeLibrary(plugin);
+        } else if (init(GameApi())) {
             LogAt(LogLevel::Good, "bml", "%s loaded", name.c_str());
-            PluginEntry entry{name.substr(0, name.size() - 4), name.substr(0, name.size() - 4), ""};
-            auto about = reinterpret_cast<BmlPluginAboutFn>(GetProcAddress(plugin, "BmlPluginAbout"));
-            if (const BmlPluginInfo* info = about ? about() : nullptr) {
-                if (info->title) entry.title = info->title;
-                if (info->description) entry.description = info->description;
-            }
-            started.push_back(entry);
         } else {
             LogAt(LogLevel::Warn, "bml", "%s declined to start", name.c_str());
+            entry.state = PluginEntry::State::Failed;
         }
+        plugins.push_back(entry);
     } while (FindNextFileW(search, &found));
     FindClose(search);
-    return started;
+    return plugins;
 }
 
 struct WindowSearch {
@@ -128,16 +139,21 @@ DWORD WINAPI Start(void*) {
     LogOpen((mods + L"bml.log").c_str());
     ConsoleOpen(GameDir());
     ConsoleSection("startup");
+    LogAt(LogLevel::Info, "bml", "BML %s", kBmlVersion);
+    SettingsOpen(mods);
     if (!GameBind()) return 0;
     ConsoleSection("plugins");
     // plugins register their callbacks before the hook can call any of them
     std::vector<PluginEntry> loaded = LoadPlugins(mods);
     std::vector<std::string> plugins;
-    for (const PluginEntry& p : loaded) plugins.push_back(p.file);
+    for (const PluginEntry& p : loaded) {
+        if (p.state == PluginEntry::State::Running) plugins.push_back(p.file);
+    }
     GameHook(plugins);
-    MenuHook(loaded, Narrow(mods));
+    MenuHook(loaded);
     LogAt(plugins.empty() ? LogLevel::Warn : LogLevel::Good, "bml", "ready, %d native mods running",
           static_cast<int>(plugins.size()));
+    UpdateStart(GameDir(), mods);
     ConsoleSection("game");
     MarkWindowTitle(plugins);
     return 0;

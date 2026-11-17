@@ -30,6 +30,10 @@ constexpr int kRoadInitSlot = 4;
 constexpr uintptr_t kRoadInit = 0x10ABB0;
 constexpr int kRoadCreateSlot = 13;
 constexpr uintptr_t kRoadCreate = 0x10A200;
+constexpr int kRoadCheckSlot = 14;
+constexpr uintptr_t kRoadCheck = 0x10A4B0;
+constexpr uintptr_t kRoadUpdate = 0x10AB60;  // the drag tool's update, then the path method key
+constexpr uintptr_t kRoadDraw = 0x10A660;
 constexpr uintptr_t kSoundOk = 0x1055C0;
 constexpr uintptr_t kSoundFail = 0x105610;
 constexpr uintptr_t kComponentDescriptionType = 0x1CF318;  // type id the engine registered
@@ -109,6 +113,9 @@ const Prologue kPrologues[] = {
     {kRoadFactory, {0x48, 0x83, 0xec, 0x38, 0x48, 0xc7, 0x44, 0x24, 0x20, 0xfe, 0xff, 0xff}},
     {kRoadInit, {0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89}},
     {kRoadCreate, {0x41, 0x57, 0xb8, 0x70, 0x20, 0x00, 0x00, 0xe8, 0xb4, 0x6c, 0xf3, 0xff}},
+    {kRoadCheck, {0x48, 0x89, 0x5c, 0x24, 0x20, 0x55, 0x56, 0x57, 0xb8, 0x40, 0x20, 0x00}},
+    {kRoadUpdate, {0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0xd9, 0xe8, 0x12, 0x70}},
+    {kRoadDraw, {0x44, 0x88, 0x44, 0x24, 0x18, 0x48, 0x89, 0x54, 0x24, 0x10, 0x48, 0x89}},
     {kSoundOk, {0x48, 0x89, 0x4c, 0x24, 0x08, 0x48, 0x83, 0xec, 0x28, 0x0f, 0x57, 0xc9}},
     {kSoundFail, {0x48, 0x89, 0x4c, 0x24, 0x08, 0x48, 0x83, 0xec, 0x28, 0x0f, 0x57, 0xc9}},
     {kGameUpdate, {0x48, 0x8b, 0xc4, 0x56, 0x57, 0x41, 0x56, 0x48, 0x81, 0xec, 0xe0, 0x00}},
@@ -676,16 +683,25 @@ char HookedAreaUpdate(void* tool, char active) {
     return result;
 }
 
-template <int K>
-void HookedAreaDraw(void* tool, void* context, char hidden) {
-    if (g_areaMarks.tiles.empty() || hidden) {
-        g_originalAreaDraw[K](tool, context, hidden);
-        return;
-    }
+// draws the marks instead of the tool's own overlay, false when there are none
+bool DrawMarks(void* context, char hidden) {
+    if (g_areaMarks.tiles.empty() || hidden) return false;
     OverlayList tiles = {g_areaMarks.tiles.data(), static_cast<int>(g_areaMarks.tiles.size()),
                          static_cast<int>(g_areaMarks.tiles.size())};
     OverlayList lines = {nullptr, 0, 0};
     At<DrawTilesFn>(kDrawTiles)(nullptr, context, &tiles, &lines);
+    return true;
+}
+
+void SetMarks(const BmlTileMark* marks, int count) {
+    g_areaMarks.touched = true;
+    g_areaMarks.tiles.resize(count > 0 ? count : 0);
+    for (int i = 0; i < count; ++i) g_areaMarks.tiles[i] = {marks[i].x, marks[i].y, 0, marks[i].color, 0};
+}
+
+template <int K>
+void HookedAreaDraw(void* tool, void* context, char hidden) {
+    if (!DrawMarks(context, hidden)) g_originalAreaDraw[K](tool, context, hidden);
 }
 
 bool ApiOnAreaUpdate(BmlAreaUpdateFn fn, void* user) {
@@ -741,9 +757,73 @@ bool ApiPlaceArea(BmlAreaTool* tool, int x0, int y0, int x1, int y1) {
 
 bool ApiMarkTiles(BmlAreaTool* tool, const BmlTileMark* marks, int count) {
     if (!KindOf(tool)) return false;
-    g_areaMarks.touched = true;
-    g_areaMarks.tiles.resize(count > 0 ? count : 0);
-    for (int i = 0; i < count; ++i) g_areaMarks.tiles[i] = {marks[i].x, marks[i].y, 0, marks[i].color, 0};
+    SetMarks(marks, count);
+    return true;
+}
+
+// the road tool is a drag tool too, with its own check and create
+struct RoadCallback {
+    BmlRoadUpdateFn fn;
+    void* user;
+};
+std::vector<RoadCallback> g_roadCallbacks;
+ToolUpdateFn g_originalRoadUpdate;
+AreaDrawFn g_originalRoadDraw;
+
+bool IsRoadTool(void* tool) {
+    return tool && Vtable(tool) == At<void**>(kRoadVtable);
+}
+
+char HookedRoadUpdate(void* tool, char active) {
+    g_toolContext = Field<void*>(tool, kToolContext);
+    g_areaMarks.touched = false;
+    char result = 1;
+    bool swallowed = false;
+    for (const RoadCallback& c : g_roadCallbacks) {
+        if (c.fn(static_cast<BmlRoadTool*>(tool), active != 0, c.user)) {
+            swallowed = true;
+            break;
+        }
+    }
+    if (!swallowed) result = g_originalRoadUpdate(tool, active);
+    if (!g_areaMarks.touched) g_areaMarks.tiles.clear();
+    return result;
+}
+
+void HookedRoadDraw(void* tool, void* context, char hidden) {
+    if (!DrawMarks(context, hidden)) g_originalRoadDraw(tool, context, hidden);
+}
+
+bool ApiOnRoadUpdate(BmlRoadUpdateFn fn, void* user) {
+    if (!fn) return false;
+    g_roadCallbacks.push_back({fn, user});
+    return true;
+}
+
+BmlTemplate* ApiRoadTemplate(BmlRoadTool* tool) {
+    return IsRoadTool(tool) ? static_cast<BmlTemplate*>(Field<void*>(tool, kToolTemplate)) : nullptr;
+}
+
+// the tool's own test for a road between two tiles, run on a single tile. While the tool
+// is mid drag it only answers for the ends of that drag
+bool ApiRoadTileOk(BmlRoadTool* tool, int x, int y) {
+    int* map = Map();
+    if (!IsRoadTool(tool) || !map || x < 0 || y < 0 || x >= *map || y >= *map) return false;
+    int tile = x + y * *map;
+    int clear, width, height, extra;
+    return At<AreaCheckFn>(kRoadCheck)(tool, tile, tile, &clear, &width, &height, &extra) == 0;
+}
+
+bool ApiPlaceRoadTile(BmlRoadTool* tool, int x, int y) {
+    int* map = Map();
+    if (!IsRoadTool(tool) || !map || x < 0 || y < 0 || x >= *map || y >= *map) return false;
+    int tile = x + y * *map;
+    return reinterpret_cast<RoadCreateFn>(Vtable(tool)[kRoadCreateSlot])(tool, tile, tile) != 0;
+}
+
+bool ApiMarkRoadTiles(BmlRoadTool* tool, const BmlTileMark* marks, int count) {
+    if (!IsRoadTool(tool)) return false;
+    SetMarks(marks, count);
     return true;
 }
 
@@ -779,6 +859,11 @@ const BmlApi kApi = {
     ApiPlaceArea,
     ApiMarkTiles,
     ApiLogWarn,
+    ApiOnRoadUpdate,
+    ApiRoadTemplate,
+    ApiRoadTileOk,
+    ApiPlaceRoadTile,
+    ApiMarkRoadTiles,
 };
 
 }  // namespace
@@ -837,7 +922,9 @@ bool GameBind() {
     if (At<void**>(kMeshVtable)[0] != g_base + kMeshDelete ||
         placement[kToolUpdateSlot] != g_base + kPlacementUpdate ||
         gameVtable[kGameUpdateSlot] != g_base + kGameUpdate ||
-        road[kRoadInitSlot] != g_base + kRoadInit || road[kRoadCreateSlot] != g_base + kRoadCreate) {
+        road[kRoadInitSlot] != g_base + kRoadInit || road[kRoadCreateSlot] != g_base + kRoadCreate ||
+        road[kRoadCheckSlot] != g_base + kRoadCheck || road[kAreaUpdateSlot] != g_base + kRoadUpdate ||
+        road[kAreaDrawSlot] != g_base + kRoadDraw) {
         LogAt(LogLevel::Error, "bml", "vtables are not what this build expects, game hooks are off");
         return false;
     }
@@ -922,6 +1009,13 @@ void GameHook(const std::vector<std::string>& plugins) {
         if (!PatchPointer(&v[kAreaUpdateSlot], areaUpdates[i]) || !PatchPointer(&v[kAreaDrawSlot], areaDraws[i])) {
             LogAt(LogLevel::Error, "bml", "could not patch an area tool vtable");
         }
+    }
+    void** road = At<void**>(kRoadVtable);
+    g_originalRoadUpdate = reinterpret_cast<ToolUpdateFn>(road[kAreaUpdateSlot]);
+    g_originalRoadDraw = reinterpret_cast<AreaDrawFn>(road[kAreaDrawSlot]);
+    if (!PatchPointer(&road[kAreaUpdateSlot], reinterpret_cast<void*>(HookedRoadUpdate)) ||
+        !PatchPointer(&road[kAreaDrawSlot], reinterpret_cast<void*>(HookedRoadDraw))) {
+        LogAt(LogLevel::Error, "bml", "could not patch the road tool vtable");
     }
     void** game = At<void**>(kGameVtable);
     g_originalGameUpdate = reinterpret_cast<GameUpdateFn>(game[kGameUpdateSlot]);

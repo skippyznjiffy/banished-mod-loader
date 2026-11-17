@@ -4,10 +4,13 @@
 #include <vector>
 
 struct PluginEntry {
+    enum class State { Running, Off, Failed };
     std::string file;  // without .dll
     std::string title;
     std::string description;
+    State state;
 };
 
-// a BML button in the main menu and the pause menu, opening a list of the active mods and plugins
-void MenuHook(const std::vector<PluginEntry>& plugins, const std::string& folder);
+// a BML button in the main menu and the pause menu, opening the game's Mods list window with
+// a checkbox for each plugin
+void MenuHook(const std::vector<PluginEntry>& plugins);

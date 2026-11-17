@@ -12,7 +12,7 @@ call "%VS%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
 if not exist "%ROOT%out\obj" mkdir "%ROOT%out\obj"
 set FLAGS=/nologo /std:c++17 /O2 /W4 /EHsc /MT /DNDEBUG /DUNICODE /D_UNICODE /DNOMINMAX /I"%ROOT%include"
 
-cl %FLAGS% /Fo"%ROOT%out\obj\\" "%ROOT%core\proxy.cpp" "%ROOT%core\game.cpp" "%ROOT%core\console.cpp" "%ROOT%core\menu.cpp" /LD /Fe"%ROOT%out\dinput8.dll" /link /DEF:"%ROOT%core\dinput8.def" user32.lib || exit /b 1
+cl %FLAGS% /Fo"%ROOT%out\obj\\" "%ROOT%core\proxy.cpp" "%ROOT%core\game.cpp" "%ROOT%core\console.cpp" "%ROOT%core\menu.cpp" "%ROOT%core\settings.cpp" "%ROOT%core\update.cpp" /LD /Fe"%ROOT%out\dinput8.dll" /link /DEF:"%ROOT%core\dinput8.def" user32.lib winhttp.lib || exit /b 1
 
 for /d %%P in ("%ROOT%plugins\*") do (
     cl %FLAGS% /Fo"%ROOT%out\obj\\" "%%P\*.cpp" /LD /Fe"%ROOT%out\%%~nxP.dll" /link user32.lib || exit /b 1

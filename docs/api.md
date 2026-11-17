@@ -51,9 +51,12 @@ is where all callbacks run. `build.bat` builds every folder under `plugins\` int
 | `on_area_update`, `area_template`, `area_limits` | the same for area tools (fields, orchards, pastures, stockpiles, clearing) |
 | `area_tile_ok`, `area_check`, `place_area` | test one tile or a rectangle the way the tool does, queue a rectangle |
 | `mark_tiles` | coloured tiles in the tool's overlay instead of its own selection, call it every frame |
+| `on_road_update`, `road_template` | the same for the road tool (dirt and stone roads) |
+| `road_tile_ok`, `place_road_tile`, `mark_road_tiles` | test one tile, queue road on one tile, coloured tiles in its overlay |
 
-`version` went to 3 with `placement_template` and the three after it, and to 4 with the
-area calls. Check it in init and decline when the loader is older than what you use.
+`version` went to 3 with `placement_template` and the three after it, to 4 with the
+area calls and to 5 with the road tool calls. Check it in init and decline when the
+loader is older than what you use.
 
 A door row faces the lowest y at rotation 0, +x at 1, the highest y at 2 and -x at 3.
 
@@ -70,6 +73,18 @@ says how many are running, and a console window next to the game shows the log i
 The console has no close button, because closing a console ends the game with it. Set
 `console = off` in `NativeMods\bml.ini` to go without it. `NativeMods\bml.log` is written
 either way, and says why when BML stays off.
+
+## Switches and updates
+
+The BML screen saves its checkboxes under `[plugins]` in `NativeMods\bml.ini`, as
+`replant = 0`. A plugin that is switched off is still loaded so the screen can show its
+`BmlPluginAbout`, but `BmlPluginInit` is never called. So a plugin should do nothing in
+`DllMain` or in the constructors of its globals.
+
+The updater reads the latest release from the GitHub API. It only takes `.dll` files
+attached to a release of this repo: `dinput8.dll` goes next to the game and the rest into
+`NativeMods`. A release attaches each dll on its own next to the zip. A loaded dll can't
+be overwritten, so the old files are renamed to `.old` and deleted at the next start.
 
 ## How it was found
 

@@ -15,7 +15,7 @@ tools and change how the game behaves.
 
 1. Download the zip from [the latest release](https://github.com/skippyznjiffy/banished-mod-loader/releases/latest).
 2. Unzip it into your Banished folder (`steamapps\common\Banished`).
-3. Start the game. Delete the plugins you don't want from `NativeMods`.
+3. Start the game. The BML button in the main menu turns plugins on or off.
 
 To remove it, delete `dinput8.dll`. No game files are changed.
 
@@ -25,9 +25,11 @@ To remove it, delete `dinput8.dll`. No game files are changed.
 |---|---|
 | Grid Build | Shift-drag any building to fill an area with rows of them and roads |
 | Area Fill | Shift-drag a field or pasture over rough ground, it fits in what it can |
+| Road Fill | Shift-drag a road to pave a whole area |
 | Replant | Shift-drag the Forester Lodge to plant a forest |
 | Speed | Speeds of 1, 10, 50 and 250 instead of 1, 2, 5 and 10 |
 | Auto Rebuild | Burnt buildings rebuild themselves |
+| Idle Work | Citizens with nothing to do help build |
 | Farm Limits | Wheat fields and pastures keep working past the food limit |
 | Storage Sync | Storage mods also grow the barns you already built |
 | Growth Sync | Plant mods also apply to the trees and herbs already on the map |
@@ -41,7 +43,7 @@ More on each one in [docs/plugins.md](docs/plugins.md).
   </tr>
   <tr>
     <td align="center"><sub>A BML button in the main menu and the pause menu</sub></td>
-    <td align="center"><sub>It lists your active mods and plugins</sub></td>
+    <td align="center"><sub>It lists your plugins, with a checkbox to turn each on or off</sub></td>
   </tr>
 </table>
 
@@ -53,6 +55,9 @@ More on each one in [docs/plugins.md](docs/plugins.md).
 ## Good to know
 
 - Only works on the 64-bit Steam version, 1.0.7. On anything else it turns itself off.
+- BML checks GitHub for a new version when the game starts. When there is one, the BML
+  screen has an update button, and the new version loads the next time you start the game.
+  Set `check = 0` under `[update]` in `NativeMods\bml.ini` to turn the check off.
 - Some antivirus programs flag it, since loading through `dinput8.dll` is also what cheats
   do. The source is all here if you'd rather build it yourself with `build.bat`.
 

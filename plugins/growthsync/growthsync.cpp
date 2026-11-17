@@ -2,14 +2,18 @@
 // in the save, so a mod that shortens a lifespan only reaches new plants. This brings every
 // loaded plant down to what its template allows now. It never lengthens one.
 #include <cstdint>
-#include <vector>
+#include <mutex>
+#include <unordered_set>
 
 #include "bml.h"
 
 namespace {
 
 // RVAs in Application-steam-x64.exe 1.0.7
-constexpr uint32_t kSerializeSlot = 0x1699D8;  // GrowthComponent vtable slot 3, load and save
+constexpr uint32_t kVtable = 0x1699C0;         // GrowthComponent
+constexpr uint32_t kDeleteSlot = kVtable;      // slot 0, the deleting destructor
+constexpr uint32_t kDelete = 0x0355B0;
+constexpr uint32_t kSerializeSlot = kVtable + 3 * 8;  // load and save
 constexpr uint32_t kSerialize = 0x125C90;
 
 // offsets into game objects, as GrowthComponent reads them when it appears
@@ -19,11 +23,16 @@ constexpr size_t kLifespan = 0x4C;        // float, below 0 for a plant that nev
 constexpr size_t kDescLifespan = 0x20;    // GrowthDescription._maxGrowth
 constexpr size_t kDescTolerance = 0x24;   // _maxGrowthTolerance, the most a plant draws on top
 
+using DeleteFn = void* (*)(void* component, unsigned flags);
 using SerializeFn = void* (*)(void* component, void* stream);
 
 const BmlApi* g_api;
+DeleteFn g_delete;
 SerializeFn g_serialize;
-std::vector<void*> g_loaded;
+// the main menu's village is loaded from a stream too and freed when a save loads, before any
+// game update, so a plant leaves this set when it is deleted
+std::mutex g_lock;
+std::unordered_set<void*> g_loaded;
 
 template <typename T>
 T& Field(void* object, size_t offset) {
@@ -33,14 +42,29 @@ T& Field(void* object, size_t offset) {
 // the description is not hooked up until the load is done, so lifespans are fixed on the next frame
 void* HookedSerialize(void* growth, void* stream) {
     void* result = g_serialize(growth, stream);
-    if (Field<int>(stream, kStreamMode) == 0) g_loaded.push_back(growth);
+    if (Field<int>(stream, kStreamMode) == 0) {
+        std::lock_guard<std::mutex> hold(g_lock);
+        g_loaded.insert(growth);
+    }
     return result;
 }
 
+void* HookedDelete(void* growth, unsigned flags) {
+    {
+        std::lock_guard<std::mutex> hold(g_lock);
+        g_loaded.erase(growth);
+    }
+    return g_delete(growth, flags);
+}
+
 void OnFrame(float, void*) {
+    std::lock_guard<std::mutex> hold(g_lock);
     if (g_loaded.empty()) return;
     int shortened = 0;
+    void* vtable = g_api->exe_base() + kVtable;
     for (void* growth : g_loaded) {
+        // the destructor puts its base class vtable back, a plant freed some other way is skipped
+        if (Field<void*>(growth, 0) != vtable) continue;
         void* desc = Field<void*>(growth, kComponentDesc);
         if (!desc) continue;
         float lifespan = Field<float>(desc, kDescLifespan);
@@ -62,6 +86,10 @@ void OnFrame(float, void*) {
 extern "C" __declspec(dllexport) bool BmlPluginInit(const BmlApi* api) {
     if (api->version < 4) return false;
     g_api = api;
+    void* deleter = api->exe_base() + kDelete;
+    void* deleteHook = reinterpret_cast<void*>(&HookedDelete);
+    if (!api->patch_code(kDeleteSlot, &deleter, sizeof(deleter), &deleteHook, sizeof(deleteHook))) return false;
+    g_delete = reinterpret_cast<DeleteFn>(deleter);
     void* original = api->exe_base() + kSerialize;
     void* hook = reinterpret_cast<void*>(&HookedSerialize);
     if (!api->patch_code(kSerializeSlot, &original, sizeof(original), &hook, sizeof(hook))) return false;
