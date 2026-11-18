@@ -1,5 +1,40 @@
 # Plugins
 
+## Town Stats
+
+Adds a Town Stats button to the gear menu that opens an overlay over the game, with five pages
+on tabs along its top and its own close button.
+
+- Overview: how many people there are and who they are, how long the food lasts, what is
+  harvested and eaten a season, health, happiness, education and clothing, and a row for every
+  kind of goods with its stock, a small line of the stock, what is made and used a season, the
+  net of the two and when the stock runs out at that pace. Click a row for its charts.
+- Food: the stock, what is harvested and eaten a season, what the town needs a season at its
+  size, the net and how many months the stock lasts if nothing more is harvested. Under that a
+  chart of harvested and eaten, what each season of the year brings and takes, and the stock.
+- Goods: the same for one kind of goods, picked from a list on the left.
+- People: population, adults, students and children with their change in a year, a chart of who
+  lives in the town, and health, happiness, education and clothing now and over the years.
+- Charts: a chart for every kind of goods you tick, side by side, of what is made and used, of
+  the stock, or of the net.
+
+Every page has the time span on its top right, from one year to the whole save, and Smooth
+seasons. With that on, what is made and used is the average of the year before each point, so a
+harvest that lands in one season does not make a spike. Off shows the season before each point,
+as the game counted it. Hover a chart for the numbers at that date. The overlay keeps the mouse
+while it is under it, so clicks on it never reach the town. What you pick is saved in
+`NativeMods\townstats.ini`, the window's place and size in `townstats-layout.ini`.
+
+It needs the DirectX 11 renderer (Video Options in the launcher). The overlay is drawn with
+[Dear ImGui](https://github.com/ocornut/imgui) and [ImPlot](https://github.com/epezent/implot),
+both MIT licensed, in `third_party`. The goods icons are the game's own, read from its sprite
+sheet while it runs, the others are [Lucide](https://lucide.dev) (ISC).
+
+`tools\townstats-preview\build.bat` builds the overlay as a program of its own, to work on it
+without the game: `out\preview\townstats-preview.exe --records <file>` opens it in a window over
+a grey backdrop, and `--shot <png>` writes one frame as a picture instead. `--page`, `--range`,
+`--raw`, `--goods`, `--window W H` and `--mouse X Y` set what that frame shows.
+
 ## Grid Build
 
 Pick a house (or any building), hold Shift and drag. The area fills with rows of buildings

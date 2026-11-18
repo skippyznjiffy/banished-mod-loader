@@ -23,6 +23,7 @@ To remove it, delete `dinput8.dll`. No game files are changed.
 
 | Plugin | What it does |
 |---|---|
+| Town Stats | A gear menu overlay with your town's numbers and graphs of everything it records |
 | Grid Build | Shift-drag any building to fill an area with rows of them and roads |
 | Area Fill | Shift-drag a field or pasture over rough ground, it fits in what it can |
 | Road Fill | Shift-drag a road to pave a whole area |
