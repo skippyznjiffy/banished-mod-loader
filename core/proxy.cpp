@@ -7,6 +7,7 @@
 
 #include "console.h"
 #include "game.h"
+#include "input.h"
 #include "menu.h"
 #include "settings.h"
 #include "update.h"
@@ -166,7 +167,10 @@ extern "C" {
 HRESULT WINAPI DirectInput8Create(HINSTANCE inst, DWORD version, REFIID iid, void** out, IUnknown* outer) {
     using Fn = HRESULT(WINAPI*)(HINSTANCE, DWORD, REFIID, void**, IUnknown*);
     auto fn = reinterpret_cast<Fn>(Real("DirectInput8Create"));
-    return fn ? fn(inst, version, iid, out, outer) : E_FAIL;
+    if (!fn) return E_FAIL;
+    HRESULT result = fn(inst, version, iid, out, outer);
+    if (SUCCEEDED(result) && out) InputWrap(*out);
+    return result;
 }
 
 HRESULT WINAPI DllCanUnloadNow() {

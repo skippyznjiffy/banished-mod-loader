@@ -9,7 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define BML_API_VERSION 5
+#define BML_API_VERSION 6
 
 // action ids of the game's key map, as its tools read them
 #define BML_ACTION_SELECT 5
@@ -24,6 +24,14 @@ typedef struct BmlRoadTool BmlRoadTool;
 typedef struct BmlSpot {
     int x, y, rotation;
 } BmlSpot;
+
+// a picture on the game's UI sprite sheet. texture is its ID3D11ShaderResourceView, which the
+// game owns, uv in 0 to 1
+typedef struct BmlSprite {
+    void* texture;
+    float u0, v0, u1, v1;
+    int width, height;
+} BmlSprite;
 
 typedef struct BmlTileMark {
     int x, y;
@@ -44,6 +52,7 @@ typedef bool (*BmlAreaUpdateFn)(BmlAreaTool* tool, bool active, void* user);
 typedef bool (*BmlRoadUpdateFn)(BmlRoadTool* tool, bool active, void* user);
 // seconds is the engine's fixed update step, the sim ran game_speed() steps of it
 typedef void (*BmlFrameFn)(float seconds, void* user);
+typedef void (*BmlButtonFn)(void* user);
 
 typedef struct BmlApi {
     uint32_t version;
@@ -134,6 +143,23 @@ typedef struct BmlApi {
     bool (*place_road_tile)(BmlRoadTool* tool, int x, int y);
     // like mark_tiles, for the road tool
     bool (*mark_road_tiles)(BmlRoadTool* tool, const BmlTileMark* tiles, int count);
+
+    // added in version 6
+
+    // a button in the gear menu (reports and tools). There is room for three, false when they are
+    // taken. The title, tooltip and icon go over the text of the game's hidden developer entries, so
+    // the title has room for about 10 letters, the tooltip about 20 and the icon name 9
+    bool (*add_gear_button)(const char* title, const char* tooltip, const char* sprite, BmlButtonFn fn, void* user);
+    // keeps the mouse, the keyboard or both from the game until it is called again with false
+    void (*capture_input)(bool mouse, bool keyboard);
+    // a sprite by its name in Dialog/SpriteSheet.rsc such as "Log" or "AdultIcon", DirectX 11 only
+    bool (*ui_sprite)(const char* name, BmlSprite* out);
+    // the town's records the Town Hall graphs draw: series 0 to 3 population, adults, students,
+    // children, 4 to 7 health, education, happiness, clothed, then from 8 a stock, used and
+    // produced triple each for logs, stone, iron, firewood, tools, food, herbs, clothing, alcohol,
+    // coal and textiles. 48 samples a year, used and produced are per sample
+    int (*history_series)(void);
+    int (*history)(int series, const int** values);
 } BmlApi;
 
 typedef bool (*BmlPluginInitFn)(const BmlApi* api);

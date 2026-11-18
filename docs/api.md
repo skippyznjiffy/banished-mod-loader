@@ -53,10 +53,14 @@ is where all callbacks run. `build.bat` builds every folder under `plugins\` int
 | `mark_tiles` | coloured tiles in the tool's overlay instead of its own selection, call it every frame |
 | `on_road_update`, `road_template` | the same for the road tool (dirt and stone roads) |
 | `road_tile_ok`, `place_road_tile`, `mark_road_tiles` | test one tile, queue road on one tile, coloured tiles in its overlay |
+| `add_gear_button` | a button in the gear menu that calls you back, up to three |
+| `capture_input` | keep the mouse or keyboard from the game, for an overlay under the cursor |
+| `ui_sprite` | a picture from the game's sprite sheet as a DirectX 11 texture view and its uv |
+| `history_series`, `history` | the town's records the Town Hall graphs draw, 48 samples a year |
 
 `version` went to 3 with `placement_template` and the three after it, to 4 with the
-area calls and to 5 with the road tool calls. Check it in init and decline when the
-loader is older than what you use.
+area calls, to 5 with the road tool calls and to 6 with the gear button, input, sprite and
+history calls. Check it in init and decline when the loader is older than what you use.
 
 A door row faces the lowest y at rotation 0, +x at 1, the highest y at 2 and -x at 3.
 

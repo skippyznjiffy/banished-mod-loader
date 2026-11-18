@@ -1,9 +1,11 @@
 #include "game.h"
 
 #include "console.h"
+#include "input.h"
 
 #include <windows.h>
 
+#include <d3d11.h>
 #include <share.h>
 
 #include <cstdarg>
@@ -63,6 +65,9 @@ constexpr int kAreaCheckSlot = 14;
 constexpr uintptr_t kTileCheck = 0x0A4AA0;       // one tile of an area, the area tools' own test
 constexpr uintptr_t kDrawTiles = 0x105D90;       // the selection overlay
 constexpr uintptr_t kBuildIdImport = 0x1587D0;   // Configuration::CurrentBuildId, only the main menu calls it
+constexpr uintptr_t kToolbarGroupVtable = 0x165E10;  // the dialog of one toolbar group, the gear menu is one
+constexpr int kToolbarGroupEventSlot = 8;
+constexpr uintptr_t kToolbarGroupEvent = 0x0BE770;
 
 // offsets into game objects
 constexpr size_t kGameMap = 248;           // int map size is the first field
@@ -98,6 +103,25 @@ constexpr size_t kEntitySize = 0x48;
 constexpr size_t kMeshInstanceSize = 0x120;
 constexpr size_t kAreaDesc = 56;           // CreateDragDescription or CreateFencedDescription
 constexpr size_t kDescZones = 36;
+constexpr int kClicked = 0x12;
+constexpr size_t kGroupEntries = 0xD0;     // the Toolbar resource behind each button id
+constexpr size_t kToolbarVisible = 0x45;
+constexpr size_t kBarDescSprite = 0x28;    // ToolbarDescription in a utility's template
+constexpr size_t kBarDescTable = 0x30;
+constexpr size_t kBarDescName = 0x38;
+constexpr size_t kBarDescTip = 0x48;
+constexpr size_t kTableEntries = 0x20;     // StringTable, {key, text} pairs
+constexpr size_t kTableCount = 0x28;
+constexpr size_t kSheetSprites = 0x20;     // SpriteSheet, its source images come first
+constexpr size_t kSheetCount = 0x28;
+constexpr size_t kSpriteSize = 0x38;
+constexpr size_t kSpriteWidth = 0x1C;
+constexpr size_t kSpriteHeight = 0x20;
+constexpr size_t kSpriteUv = 0x24;
+constexpr size_t kTextureImage = 0x60;     // the video dll's image, its d3d objects follow
+constexpr size_t kGameTown = 0xF0;
+constexpr size_t kTownHistory = 0x150;     // 16 byte series, the samples then their count
+constexpr size_t kTownHistoryCount = 0x158;
 
 struct Prologue {
     uintptr_t rva;
@@ -133,6 +157,7 @@ const Prologue kPrologues[] = {
     {kModelSelect, {0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48}},
     {kTileCheck, {0x4c, 0x8b, 0xdc, 0x49, 0x89, 0x73, 0x18, 0x57, 0x48, 0x83, 0xec, 0x70}},
     {kDrawTiles, {0x48, 0x8b, 0xc4, 0x4c, 0x89, 0x48, 0x20, 0x4c, 0x89, 0x40, 0x18, 0x48}},
+    {kToolbarGroupEvent, {0x48, 0x8b, 0xc4, 0x55, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57}},
 };
 
 using ToolUpdateFn = char (*)(void* tool, char active);
@@ -184,6 +209,7 @@ using AreaDrawFn = void (*)(void* tool, void* context, char hidden);
 using DrawTilesFn = char (*)(void* unused, void* context, const void* tiles, const void* lines);
 using AreaCheckFn = int (*)(void* tool, int from, int to, int* clear, int* width, int* height, int* extra);
 using AreaCreateFn = char (*)(void* tool, int from, int to);
+using GroupEventFn = void (*)(void* self, void* element, int event, int id, int a, int b, int c, void* user);
 using StringFn = void* (*)(void* out);  // returns a System::String by value
 using StringGetFn = const char* (*)(const void* self);
 using StringSetFn = void (*)(void* self, const char* text);
@@ -544,6 +570,17 @@ BmlTemplate* ApiFindTemplate(const char* path) {
     return static_cast<BmlTemplate*>(found);
 }
 
+// a loaded resource of any type, null when the game has not loaded it
+void* FindLoaded(const char* path) {
+    void* factory = g_rt.factoryGet();
+    if (!factory) return nullptr;
+    alignas(16) uint8_t filename[256] = {};
+    g_rt.filenameCtor(filename, path);
+    void* found = g_rt.factoryFind(factory, filename);
+    g_rt.filenameDtor(filename);
+    return found;
+}
+
 void* RoadToolFor(void* road) {
     auto it = g_roadTools.find(road);
     if (it != g_roadTools.end()) return it->second;
@@ -827,6 +864,173 @@ bool ApiMarkRoadTiles(BmlRoadTool* tool, const BmlTileMark* marks, int count) {
     return true;
 }
 
+// gear menu buttons take over the menu's hidden entries, whose utilities are only for the
+// game's developers. Their text and icon are written over the resource's own strings, so the
+// engine never holds memory of ours
+struct GearSlot {
+    const char* entry;
+    const char* bar;
+};
+const GearSlot kGearSlots[] = {
+    {"Game/Toolbar.rsc:noise", "Template/UtilityNoise.rsc:toolbar"},
+    {"Game/Toolbar.rsc:debug", "Template/UtilityDebug.rsc:toolbar"},
+    {"Game/Toolbar.rsc:capture", "Template/UtilityCapture.rsc:toolbar"},
+};
+constexpr size_t kGearSlotCount = sizeof(kGearSlots) / sizeof(kGearSlots[0]);
+
+struct GearButton {
+    std::string title;
+    std::string tooltip;
+    std::string sprite;
+    BmlButtonFn fn;
+    void* user;
+    void* entry;  // the Toolbar resource, set once it is taken over
+};
+std::vector<GearButton> g_gearButtons;
+GroupEventFn g_originalGroupEvent;
+
+// over a buffer that holds text already, only as far as that text reaches
+bool Overwrite(char* old, size_t room, const std::string& text) {
+    if (!old || text.size() + 1 > room) return false;
+    memcpy(old, text.c_str(), text.size() + 1);
+    return true;
+}
+
+// a table's strings sit back to back, so an entry's text has room up to the next key
+bool WriteTableText(void* table, const char* key, const std::string& text) {
+    if (!table || !key) return false;
+    auto** entries = Field<char**>(table, kTableEntries);
+    int count = Field<int>(table, kTableCount);
+    for (int i = 0; i < count; ++i) {
+        if (!entries[2 * i] || strcmp(entries[2 * i], key) != 0) continue;
+        char* old = entries[2 * i + 1];
+        size_t room = old ? strlen(old) + 1 : 0;
+        if (i + 1 < count && entries[2 * i + 2] > old && entries[2 * i + 2] - old < 256) {
+            room = static_cast<size_t>(entries[2 * i + 2] - old);
+        }
+        return Overwrite(old, room, text);
+    }
+    return false;
+}
+
+void ApplyGearButtons() {
+    for (size_t i = 0; i < g_gearButtons.size(); ++i) {
+        GearButton& b = g_gearButtons[i];
+        if (b.entry) continue;
+        void* entry = FindLoaded(kGearSlots[i].entry);
+        void* bar = FindLoaded(kGearSlots[i].bar);
+        if (!entry || !bar) continue;
+        b.entry = entry;
+        Field<uint8_t>(entry, kToolbarVisible) = 1;
+        char* sprite = Field<char*>(bar, kBarDescSprite);
+        if (!b.sprite.empty() && !Overwrite(sprite, sprite ? strlen(sprite) + 1 : 0, b.sprite)) {
+            LogAt(LogLevel::Warn, "bml", "gear button %s: icon name %s is too long, %zu letters fit", b.title.c_str(),
+                  b.sprite.c_str(), sprite ? strlen(sprite) : 0);
+        }
+        void* table = Field<void*>(bar, kBarDescTable);
+        if (!WriteTableText(table, Field<const char*>(bar, kBarDescName), b.title) ||
+            !WriteTableText(table, Field<const char*>(bar, kBarDescTip), b.tooltip)) {
+            LogAt(LogLevel::Warn, "bml", "gear button %s: title or tooltip too long for its slot", b.title.c_str());
+        }
+    }
+}
+
+void HookedGroupEvent(void* self, void* element, int event, int id, int a, int b, int c, void* user) {
+    ApplyGearButtons();
+    void** entries = Field<void**>(self, kGroupEntries);
+    if (event == kClicked && id >= 0 && entries) {
+        for (const GearButton& button : g_gearButtons) {
+            if (button.entry && button.entry == entries[id]) {
+                button.fn(button.user);
+                return;
+            }
+        }
+    }
+    g_originalGroupEvent(self, element, event, id, a, b, c, user);
+}
+
+bool ApiAddGearButton(const char* title, const char* tooltip, const char* sprite, BmlButtonFn fn, void* user) {
+    if (!title || !fn || g_gearButtons.size() >= kGearSlotCount) return false;
+    g_gearButtons.push_back({title, tooltip ? tooltip : "", sprite ? sprite : "", fn, user, nullptr});
+    return true;
+}
+
+void ApiCaptureInput(bool mouse, bool keyboard) {
+    InputCapture(mouse, keyboard);
+}
+
+// committed memory that can be read, for pointers whose layout was only seen in one build
+bool Readable(const void* at, size_t size) {
+    MEMORY_BASIC_INFORMATION info;
+    if (!at || !VirtualQuery(at, &info, sizeof(info)) || info.State != MEM_COMMIT ||
+        (info.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0) {
+        return false;
+    }
+    return static_cast<const uint8_t*>(at) + size <= static_cast<const uint8_t*>(info.BaseAddress) + info.RegionSize;
+}
+
+// the video dll's image keeps its texture and views as COM pointers, the view is the one that answers
+ID3D11ShaderResourceView* ImageView(void* image) {
+    HMODULE d3d = GetModuleHandleW(L"d3d11.dll");
+    if (!d3d || !Readable(image, 0x38)) return nullptr;
+    for (size_t offset = 0x10; offset <= 0x30; offset += 8) {
+        auto* object = Field<IUnknown*>(image, offset);
+        MEMORY_BASIC_INFORMATION info;
+        if (!Readable(object, sizeof(void*)) || !VirtualQuery(*reinterpret_cast<void**>(object), &info, sizeof(info)) ||
+            info.AllocationBase != d3d) {
+            continue;
+        }
+        ID3D11ShaderResourceView* view = nullptr;
+        if (SUCCEEDED(object->QueryInterface(__uuidof(ID3D11ShaderResourceView), reinterpret_cast<void**>(&view)))) {
+            view->Release();  // the image keeps it alive, callers borrow it
+            return view;
+        }
+    }
+    return nullptr;
+}
+
+bool ApiUiSprite(const char* name, BmlSprite* out) {
+    void* sheet = name && out ? FindLoaded("Dialog/SpriteSheet.rsc:resource") : nullptr;
+    if (!sheet) return false;
+    auto* sprites = Field<uint8_t*>(sheet, kSheetSprites);
+    int count = Field<int>(sheet, kSheetCount);
+    for (int i = 0; i < count; ++i) {
+        uint8_t* sprite = sprites + i * kSpriteSize;
+        const char* spriteName = Field<const char*>(sprite, 0);
+        if (!spriteName || strcmp(spriteName, name) != 0) continue;
+        void* texture = FindLoaded("Dialog/SpriteSheetTexture.rsc:resource");
+        out->texture = Readable(texture, kTextureImage + sizeof(void*)) ? ImageView(Field<void*>(texture, kTextureImage))
+                                                                       : nullptr;
+        out->width = Field<int>(sprite, kSpriteWidth);
+        out->height = Field<int>(sprite, kSpriteHeight);
+        const float* uv = &Field<float>(sprite, kSpriteUv);
+        out->u0 = uv[0];
+        out->v0 = uv[1];
+        out->u1 = uv[2];
+        out->v1 = uv[3];
+        return out->texture != nullptr;
+    }
+    return false;
+}
+
+void* Town() {
+    void* game = Game();
+    return game ? Field<void*>(game, kGameTown) : nullptr;
+}
+
+int ApiHistorySeries() {
+    void* town = Town();
+    return town && Field<void*>(town, kTownHistory) ? Field<int>(town, kTownHistoryCount) : 0;
+}
+
+int ApiHistory(int series, const int** values) {
+    if (values) *values = nullptr;
+    if (!values || series < 0 || series >= ApiHistorySeries()) return 0;
+    uint8_t* entry = Field<uint8_t*>(Town(), kTownHistory) + 16 * series;
+    *values = Field<const int*>(entry, 0);
+    return *values ? Field<int>(entry, 8) : 0;
+}
+
 const BmlApi kApi = {
     BML_API_VERSION,
     ApiLog,
@@ -864,6 +1068,11 @@ const BmlApi kApi = {
     ApiRoadTileOk,
     ApiPlaceRoadTile,
     ApiMarkRoadTiles,
+    ApiAddGearButton,
+    ApiCaptureInput,
+    ApiUiSprite,
+    ApiHistorySeries,
+    ApiHistory,
 };
 
 }  // namespace
@@ -926,6 +1135,10 @@ bool GameBind() {
         road[kRoadCheckSlot] != g_base + kRoadCheck || road[kAreaUpdateSlot] != g_base + kRoadUpdate ||
         road[kAreaDrawSlot] != g_base + kRoadDraw) {
         LogAt(LogLevel::Error, "bml", "vtables are not what this build expects, game hooks are off");
+        return false;
+    }
+    if (At<void**>(kToolbarGroupVtable)[kToolbarGroupEventSlot] != g_base + kToolbarGroupEvent) {
+        LogAt(LogLevel::Error, "bml", "the toolbar vtable is not what this build expects, game hooks are off");
         return false;
     }
     for (const AreaKind& k : kAreaKinds) {
@@ -1016,6 +1229,11 @@ void GameHook(const std::vector<std::string>& plugins) {
     if (!PatchPointer(&road[kAreaUpdateSlot], reinterpret_cast<void*>(HookedRoadUpdate)) ||
         !PatchPointer(&road[kAreaDrawSlot], reinterpret_cast<void*>(HookedRoadDraw))) {
         LogAt(LogLevel::Error, "bml", "could not patch the road tool vtable");
+    }
+    void** group = At<void**>(kToolbarGroupVtable);
+    g_originalGroupEvent = reinterpret_cast<GroupEventFn>(group[kToolbarGroupEventSlot]);
+    if (!PatchPointer(&group[kToolbarGroupEventSlot], reinterpret_cast<void*>(HookedGroupEvent))) {
+        LogAt(LogLevel::Error, "bml", "could not patch the toolbar vtable");
     }
     void** game = At<void**>(kGameVtable);
     g_originalGameUpdate = reinterpret_cast<GameUpdateFn>(game[kGameUpdateSlot]);
