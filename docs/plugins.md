@@ -112,8 +112,9 @@ own jobs, and children and students never build.
 
 ## Speed
 
-Replaces the speed steps 1, 2, 5, 10 with 1 and the three numbers in
-`NativeMods\speed.ini` (`steps = 10, 50, 250` by default).
+The slower and faster buttons step through 1 and the numbers in `NativeMods\speed.ini`
+instead of 1, 2, 5, 10. Up to 16 rising numbers, `steps = 10, 20, 30, 50, 100, 150, 250`
+by default.
 
 The engine updates on a fixed time step, and at speed N the whole sim runs N times per
 update. While those N steps take less than one time step, the game really runs N times

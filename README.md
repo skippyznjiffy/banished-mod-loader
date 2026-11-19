@@ -28,7 +28,7 @@ To remove it, delete `dinput8.dll`. No game files are changed.
 | Area Fill | Shift-drag a field or pasture over rough ground, it fits in what it can |
 | Road Fill | Shift-drag a road to pave a whole area |
 | Replant | Shift-drag the Forester Lodge to plant a forest |
-| Speed | Speeds of 1, 10, 50 and 250 instead of 1, 2, 5 and 10 |
+| Speed | Speed steps of your choosing, up to 250x, instead of 1, 2, 5 and 10 |
 | Auto Rebuild | Burnt buildings rebuild themselves |
 | Idle Work | Citizens with nothing to do help build |
 | Farm Limits | Wheat fields and pastures keep working past the food limit |
